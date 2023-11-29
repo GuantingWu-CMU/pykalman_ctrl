@@ -111,7 +111,7 @@ def _last_dims(X, t, ndims=2):
 
 def _loglikelihoods(observation_matrices, observation_offsets,
                     observation_covariance, predicted_state_means,
-                    predicted_state_covariances, observations):
+                    predicted_state_covariances, control_matrices, observations, control_vars):
     "No revision yet"
     """Calculate log likelihood of all observations
 
@@ -153,12 +153,22 @@ def _loglikelihoods(observation_matrices, observation_offsets,
             predicted_state_covariance = _last_dims(
                 predicted_state_covariances, t
             )
+            if control_matrices is not None:
+                control_var = control_vars[t]
+                predicted_observation_mean = (
+                    np.dot(observation_matrix,
+                        predicted_state_mean)
+                    + np.dot(control_matrices,
+                            control_var)                             
+                    + observation_offset
+                )
+            else:
+                predicted_observation_mean = (
+                    np.dot(observation_matrix,
+                        predicted_state_mean)
+                    + observation_offset
+                )
 
-            predicted_observation_mean = (
-                np.dot(observation_matrix,
-                       predicted_state_mean)
-                + observation_offset
-            )
             predicted_observation_covariance = (
                 np.dot(observation_matrix,
                        np.dot(predicted_state_covariance,
@@ -392,11 +402,11 @@ def _filter(transition_matrices, observation_matrices, transition_covariance,
                 )
             )
 
-        control_matrix = _last_dims(control_matrices, t - 1)
+        control_matrix = _last_dims(control_matrices, t)
         observation_matrix = _last_dims(observation_matrices, t)
         observation_covariance = _last_dims(observation_covariance, t)
         observation_offset = _last_dims(observation_offsets, t, ndims=1)
-        control_vars_t = control_vars[t] if control_vars is not None else None
+        control_var = control_vars[t] if control_vars is not None else None
         (kalman_gains[t], filtered_state_means[t],
          filtered_state_covariances[t]) = (
             _filter_correct(control_matrix,
@@ -406,7 +416,7 @@ def _filter(transition_matrices, observation_matrices, transition_covariance,
                 predicted_state_means[t],
                 predicted_state_covariances[t],
                 observations[t],
-                control_vars_t
+                control_var
             )
         )
 
@@ -1544,7 +1554,7 @@ class KalmanFilter(object):
         # get likelihoods for each time step
         loglikelihoods = _loglikelihoods(
           observation_matrices, observation_offsets, observation_covariance,
-          predicted_state_means, predicted_state_covariances, Z
+          predicted_state_means, predicted_state_covariances, control_matrices, Z, U
         )
 
         return np.sum(loglikelihoods)
