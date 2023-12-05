@@ -1574,7 +1574,7 @@ class KalmanFilter(object):
             'observation_covariance': np.eye(n_dim_obs),
             'initial_state_mean': np.zeros(n_dim_state),
             'initial_state_covariance': np.eye(n_dim_state),
-            'control_matrices': np.eye(n_dim_obs, n_dim_ctrl) if n_dim_ctrl is not None else None,
+            'control_matrices': np.zeros((n_dim_obs, n_dim_ctrl)) if n_dim_ctrl is not None else None,
             'random_state': 0,
             'em_vars': [
                 'transition_covariance',
