@@ -10,6 +10,7 @@ import warnings
 
 import numpy as np
 from scipy import linalg
+from scipy.stats import multivariate_normal
 
 from .utils import array1d, array2d, check_random_state, \
     get_params, log_multivariate_normal_density, preprocess_arguments
@@ -112,7 +113,7 @@ def _last_dims(X, t, ndims=2):
 def _loglikelihoods(observation_matrices, observation_offsets,
                     observation_covariance, predicted_state_means,
                     predicted_state_covariances, control_matrices, observations, control_vars):
-    "No revision yet"
+    
     """Calculate log likelihood of all observations
 
     Parameters
@@ -153,7 +154,7 @@ def _loglikelihoods(observation_matrices, observation_offsets,
             predicted_state_covariance = _last_dims(
                 predicted_state_covariances, t
             )
-            if control_matrices is not None:
+            if isinstance(control_matrices, np.ndarray):
                 control_var = control_vars[t]
                 predicted_observation_mean = (
                     np.dot(observation_matrix,
@@ -162,6 +163,7 @@ def _loglikelihoods(observation_matrices, observation_offsets,
                             control_var)                             
                     + observation_offset
                 )
+
             else:
                 predicted_observation_mean = (
                     np.dot(observation_matrix,
@@ -175,11 +177,17 @@ def _loglikelihoods(observation_matrices, observation_offsets,
                               observation_matrix.T))
                 + observation_covariance
             )
+
             loglikelihoods[t] = log_multivariate_normal_density(
                 observation[np.newaxis, :],
                 predicted_observation_mean[np.newaxis, :],
                 predicted_observation_covariance[np.newaxis, :, :]
             )
+            # loglikelihoods[t] = np.log(
+            #     multivariate_normal.pdf(
+            #         observation, 
+            #         mean = predicted_observation_mean, 
+            #         cov = predicted_observation_covariance))
     return loglikelihoods
 
 
@@ -372,7 +380,7 @@ def _filter(transition_matrices, observation_matrices, transition_covariance,
     n_timesteps = observations.shape[0]
     n_dim_state = len(initial_state_mean)
     n_dim_obs = observations.shape[1]
-    n_dim_ctrl = control_vars.shape[1] if control_vars is not None else 0
+    n_dim_ctrl = 0 if control_vars is None else control_vars.shape[1]
 
     predicted_state_means = np.zeros((n_timesteps, n_dim_state))
     predicted_state_covariances = np.zeros(
@@ -402,7 +410,7 @@ def _filter(transition_matrices, observation_matrices, transition_covariance,
                 )
             )
 
-        control_matrix = _last_dims(control_matrices, t)
+        control_matrix = _last_dims(control_matrices, t) if control_vars is not None else None
         observation_matrix = _last_dims(observation_matrices, t)
         observation_covariance = _last_dims(observation_covariance, t)
         observation_offset = _last_dims(observation_offsets, t, ndims=1)
@@ -1088,10 +1096,11 @@ class KalmanFilter(object):
             transition_covariance=None, observation_covariance=None,
             transition_offsets=None, observation_offsets=None,
             initial_state_mean=None, initial_state_covariance=None,
+            control_matrices=None, 
             random_state=None,
             em_vars=['transition_covariance', 'observation_covariance',
                      'initial_state_mean', 'initial_state_covariance'],
-            n_dim_state=None, n_dim_obs=None, n_dim_ctrl=None):
+            n_dim_state=None, n_dim_obs=None, n_dim_ctrl=0):
         """Initialize Kalman Filter"""
 
         # determine size of state space
@@ -1119,6 +1128,7 @@ class KalmanFilter(object):
         self.observation_offsets = observation_offsets
         self.initial_state_mean = initial_state_mean
         self.initial_state_covariance = initial_state_covariance
+        self.control_matrices = control_matrices
         self.random_state = random_state
         self.em_vars = em_vars
         self.n_dim_ctrl = n_dim_ctrl
@@ -1537,6 +1547,7 @@ class KalmanFilter(object):
          initial_state_mean, initial_state_covariance, control_matrices) = (
             self._initialize_parameters()
         )
+        control_matrices = self.control_matrices
 
         # apply the Kalman Filter
         (predicted_state_means, predicted_state_covariances,
@@ -1574,7 +1585,7 @@ class KalmanFilter(object):
             'observation_covariance': np.eye(n_dim_obs),
             'initial_state_mean': np.zeros(n_dim_state),
             'initial_state_covariance': np.eye(n_dim_state),
-            'control_matrices': np.zeros((n_dim_obs, n_dim_ctrl)) if n_dim_ctrl is not None else None,
+            'control_matrices': -1 if n_dim_ctrl == 0 else np.zeros((n_dim_obs, n_dim_ctrl)),
             'random_state': 0,
             'em_vars': [
                 'transition_covariance',
@@ -1592,7 +1603,7 @@ class KalmanFilter(object):
             'observation_covariance': array2d,
             'initial_state_mean': array1d,
             'initial_state_covariance': array2d,
-            'control_matrices': array2d if n_dim_ctrl is not None else None,
+            'control_matrices': int if n_dim_ctrl == 0 else array2d,
             'random_state': check_random_state,
             'n_dim_state': int,
             'n_dim_obs': int,
