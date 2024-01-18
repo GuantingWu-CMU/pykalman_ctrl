@@ -1425,7 +1425,7 @@ class KalmanFilter(object):
         )
         return (smoothed_state_means, smoothed_state_covariances)
 
-    def em(self, X, U=None, y=None, n_iter=10, em_vars=None):
+    def em(self, X, U=None, y=None, n_iter=10, em_vars=None, control_init=0, kf_params_init=None):
         """Apply the EM algorithm
 
         Apply the EM algorithm to estimate all parameters specified by
@@ -1454,7 +1454,7 @@ class KalmanFilter(object):
          self.transition_covariance, self.observation_matrices,
          self.observation_offsets, self.observation_covariance, 
          self.initial_state_mean, self.initial_state_covariance, self.control_matrices) = (
-            self._initialize_parameters()
+            self._initialize_parameters(control_init=control_init, kf_params_init=kf_params_init)
         )
 
         # Create dictionary of variables not to perform EM on
@@ -1490,39 +1490,83 @@ class KalmanFilter(object):
                 warnings.warn(warn_str)
 
         # Actual EM iterations
-        for i in range(n_iter):
-            (predicted_state_means, predicted_state_covariances,
-             kalman_gains, filtered_state_means,
-             filtered_state_covariances) = (
-                _filter(
-                    self.transition_matrices, self.observation_matrices,
-                    self.transition_covariance, self.observation_covariance,
-                    self.transition_offsets, self.observation_offsets,
-                    self.initial_state_mean, self.initial_state_covariance, self.control_matrices,
-                    Z, U
+        if n_iter == 'auto':
+            count_iter = 0
+            previous = -1e10
+            current = self.loglikelihood(Z, U)
+            while abs(current - previous) / abs(previous) > 0.01:
+                previous = self.loglikelihood(Z, U)
+                (predicted_state_means, predicted_state_covariances,
+                kalman_gains, filtered_state_means,
+                filtered_state_covariances) = (
+                    _filter(
+                        self.transition_matrices, self.observation_matrices,
+                        self.transition_covariance, self.observation_covariance,
+                        self.transition_offsets, self.observation_offsets,
+                        self.initial_state_mean, self.initial_state_covariance, self.control_matrices,
+                        Z, U
+                    )
                 )
-            )
-            (smoothed_state_means, smoothed_state_covariances,
-             kalman_smoothing_gains) = (
-                _smooth(
-                    self.transition_matrices, filtered_state_means,
-                    filtered_state_covariances, predicted_state_means,
-                    predicted_state_covariances
+                (smoothed_state_means, smoothed_state_covariances,
+                kalman_smoothing_gains) = (
+                    _smooth(
+                        self.transition_matrices, filtered_state_means,
+                        filtered_state_covariances, predicted_state_means,
+                        predicted_state_covariances
+                    )
                 )
-            )
-            sigma_pair_smooth = _smooth_pair(
-                smoothed_state_covariances,
-                kalman_smoothing_gains
-            )
-            (self.transition_matrices,  self.observation_matrices,
-             self.transition_offsets, self.observation_offsets,
-             self.transition_covariance, self.observation_covariance,
-             self.initial_state_mean, self.initial_state_covariance, self.control_matrices) = (
-                _em(Z, U, self.observation_matrices, self.transition_offsets, self.observation_offsets,
-                    smoothed_state_means, smoothed_state_covariances,
-                    sigma_pair_smooth, given=given
+                sigma_pair_smooth = _smooth_pair(
+                    smoothed_state_covariances,
+                    kalman_smoothing_gains
                 )
-            )
+                (self.transition_matrices,  self.observation_matrices,
+                self.transition_offsets, self.observation_offsets,
+                self.transition_covariance, self.observation_covariance,
+                self.initial_state_mean, self.initial_state_covariance, self.control_matrices) = (
+                    _em(Z, U, self.observation_matrices, self.transition_offsets, self.observation_offsets,
+                        smoothed_state_means, smoothed_state_covariances,
+                        sigma_pair_smooth, given=given
+                    )
+                )
+                count_iter += 1
+                current = self.loglikelihood(Z, U)
+                if count_iter >= 100:
+                    break
+
+        elif isinstance(n_iter, int):
+            for i in range(n_iter):
+                (predicted_state_means, predicted_state_covariances,
+                kalman_gains, filtered_state_means,
+                filtered_state_covariances) = (
+                    _filter(
+                        self.transition_matrices, self.observation_matrices,
+                        self.transition_covariance, self.observation_covariance,
+                        self.transition_offsets, self.observation_offsets,
+                        self.initial_state_mean, self.initial_state_covariance, self.control_matrices,
+                        Z, U
+                    )
+                )
+                (smoothed_state_means, smoothed_state_covariances,
+                kalman_smoothing_gains) = (
+                    _smooth(
+                        self.transition_matrices, filtered_state_means,
+                        filtered_state_covariances, predicted_state_means,
+                        predicted_state_covariances
+                    )
+                )
+                sigma_pair_smooth = _smooth_pair(
+                    smoothed_state_covariances,
+                    kalman_smoothing_gains
+                )
+                (self.transition_matrices,  self.observation_matrices,
+                self.transition_offsets, self.observation_offsets,
+                self.transition_covariance, self.observation_covariance,
+                self.initial_state_mean, self.initial_state_covariance, self.control_matrices) = (
+                    _em(Z, U, self.observation_matrices, self.transition_offsets, self.observation_offsets,
+                        smoothed_state_means, smoothed_state_covariances,
+                        sigma_pair_smooth, given=given
+                    )
+                )
         return self
 
     def loglikelihood(self, X, U=None):
@@ -1570,30 +1614,55 @@ class KalmanFilter(object):
 
         return np.sum(loglikelihoods)
 
-    def _initialize_parameters(self):
+    def _initialize_parameters(self, control_init = 0, kf_params_init=None):
         """Retrieve parameters if they exist, else replace with defaults"""
         n_dim_state, n_dim_obs = self.n_dim_state, self.n_dim_obs
         n_dim_ctrl = self.n_dim_ctrl
 
         arguments = get_params(self)
-        defaults = {
-            'transition_matrices': np.eye(n_dim_state),
-            'transition_offsets': np.zeros(n_dim_state),
-            'transition_covariance': np.eye(n_dim_state),
-            'observation_matrices': np.eye(n_dim_obs, n_dim_state),
-            'observation_offsets': np.zeros(n_dim_obs),
-            'observation_covariance': np.eye(n_dim_obs),
-            'initial_state_mean': np.zeros(n_dim_state),
-            'initial_state_covariance': np.eye(n_dim_state),
-            'control_matrices': -1 if n_dim_ctrl == 0 else np.zeros((n_dim_obs, n_dim_ctrl)),
-            'random_state': 0,
-            'em_vars': [
-                'transition_covariance',
-                'observation_covariance',
-                'initial_state_mean',
-                'initial_state_covariance'
-            ],
-        }
+        if kf_params_init is None:
+            defaults = {
+                'transition_matrices': np.eye(n_dim_state),
+                'transition_offsets': np.zeros(n_dim_state),
+                'transition_covariance': np.eye(n_dim_state),
+
+                'observation_matrices': np.eye(n_dim_obs, n_dim_state),
+                'observation_offsets': np.zeros(n_dim_obs),
+                'observation_covariance': np.eye(n_dim_obs),
+
+                'initial_state_mean': np.ones(n_dim_state),
+                'initial_state_covariance': np.zeros((n_dim_state, n_dim_state)), #np.eye(n_dim_state),
+                'control_matrices': -1 if n_dim_ctrl == 0 else np.zeros((n_dim_obs, n_dim_ctrl))+control_init,
+                'random_state': 0,
+                'em_vars': [
+                    'transition_covariance',
+                    'observation_covariance',
+                    'initial_state_mean',
+                    'initial_state_covariance'
+                ],
+            }
+        else:
+            defaults = {
+                'transition_matrices': kf_params_init['transition_matrices'].values,
+                'transition_offsets': np.zeros(n_dim_state),
+                'transition_covariance': kf_params_init['transition_covariance'].values,
+
+                'observation_matrices': kf_params_init['observation_matrices'].values,
+                'observation_offsets': np.zeros(n_dim_obs),
+                'observation_covariance': kf_params_init['observation_covariance'].values,
+
+                'initial_state_mean': np.ones(n_dim_state),
+                'initial_state_covariance': np.zeros((n_dim_state, n_dim_state)), #np.eye(n_dim_state),
+                'control_matrices': -1 if n_dim_ctrl == 0 else np.array([kf_params_init['control_com1'].values[0], kf_params_init['control_com2'].values[0]]),
+                'random_state': 0,
+                'em_vars': [
+                    'transition_covariance',
+                    'observation_covariance',
+                    'initial_state_mean',
+                    'initial_state_covariance'
+                ],
+            }
+
         converters = {
             'transition_matrices': array2d,
             'transition_offsets': array1d,
