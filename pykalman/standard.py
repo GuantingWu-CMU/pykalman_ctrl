@@ -1631,7 +1631,7 @@ class KalmanFilter(object):
                 'observation_covariance': np.eye(n_dim_obs),
 
                 'initial_state_mean': np.ones(n_dim_state),
-                'initial_state_covariance': np.zeros((n_dim_state, n_dim_state)), #np.eye(n_dim_state),
+                'initial_state_covariance': np.eye(n_dim_state),
                 'control_matrices': -1 if n_dim_ctrl == 0 else np.zeros((n_dim_obs, n_dim_ctrl))+control_init,
                 'random_state': 0,
                 'em_vars': [
@@ -1643,7 +1643,7 @@ class KalmanFilter(object):
             }
         else:
             defaults = {
-                'transition_matrices': kf_params_init['transition_matrices'].values,
+                'transition_matrices': np.eye(n_dim_state), #kf_params_init['transition_matrices'].values,
                 'transition_offsets': np.zeros(n_dim_state),
                 'transition_covariance': kf_params_init['transition_covariance'].values,
 
@@ -1651,8 +1651,8 @@ class KalmanFilter(object):
                 'observation_offsets': np.zeros(n_dim_obs),
                 'observation_covariance': kf_params_init['observation_covariance'].values,
 
-                'initial_state_mean': np.ones(n_dim_state),
-                'initial_state_covariance': np.zeros((n_dim_state, n_dim_state)), #np.eye(n_dim_state),
+                'initial_state_mean': np.ones(n_dim_state), # kf_params_init['initial_state_mean'].values,
+                'initial_state_covariance': kf_params_init['initial_state_covariance'].values, #np.eye(n_dim_state),
                 'control_matrices': -1 if n_dim_ctrl == 0 else np.array([kf_params_init['control_com1'].values[0], kf_params_init['control_com2'].values[0]]),
                 'random_state': 0,
                 'em_vars': [
